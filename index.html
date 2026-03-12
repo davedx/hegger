@@ -554,7 +554,7 @@
             ctx.save();
             ctx.translate(v.x + v.w / 2, v.y + CELL / 2);
             ctx.rotate(Math.PI / 2);
-            if (v.row === 5) ctx.scale(-1, 1);
+            if (v.row === 5) ctx.scale(1, -1);
             ctx.drawImage(jackImg, -drawW / 2, -drawH / 2, drawW, drawH);
             ctx.restore();
           }
