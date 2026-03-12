@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Frogger</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0d0d0d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Courier New', monospace;
+  gap: 10px;
+  color: #fff;
+}
+#ui { position: relative; }
+canvas { display: block; border: 2px solid #333; image-rendering: pixelated; }
+#overlay {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(5, 5, 5, 0.92);
+  border: 2px solid #555;
+  border-radius: 12px;
+  padding: 2rem 3rem;
+  text-align: center;
+  min-width: 270px;
+}
+#overlay.show { display: block; }
+#ov-title { font-size: 2rem; font-weight: bold; margin-bottom: 0.4rem; }
+#ov-msg   { font-size: 0.9rem; color: #999; margin-bottom: 1.6rem; }
+#ov-btn {
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  padding: 0.55rem 2rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#ov-btn:hover { background: #388e3c; }
+#hint { color: #383838; font-size: 0.72rem; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <canvas id="game"></canvas>
+  <div id="overlay">
+    <div id="ov-title"></div>
+    <div id="ov-msg"></div>
+    <button id="ov-btn" onclick="startGame()">Play Again</button>
+  </div>
+</div>
+<div id="hint">Arrow keys to move</div>
+
+<script>
+// ─── Constants ───────────────────────────────────────────────────────────────
+const CELL = 50;
+const COLS = 13;
+const ROWS = 10;       // rows 0–9; row 0 is the bank (variable height)
+const W    = COLS * CELL;
+
+// BANK_H is updated once the trump image loads; all other rows are CELL tall.
+let BANK_H = CELL * 2;
+let H      = BANK_H + (ROWS - 1) * CELL;
+
+// Row 0 starts at y=0 with height BANK_H.
+// Rows 1–9 start at BANK_H + (r-1)*CELL with height CELL.
+function rowY(r) { return r === 0 ? 0 : BANK_H + (r - 1) * CELL; }
+
+// Row indices
+const ROW_BANK   = 0;
+const ROW_START  = 9;
+const RIVER_ROWS = new Set([1, 2, 3]);
+const ROAD_ROWS  = new Set([5, 6, 7, 8]);
+
+// Bank win zones (columns)
+const WIN_L_MAX = 1;   // cols 0–1  → win
+const WIN_R_MIN = 11;  // cols 11–12 → win
+
+const ROW_BG = [
+  '#4e342e', // 0  bank (brown cliff)
+  '#0d3b5e', // 1  river
+  '#0a2f4a', // 2  river
+  '#0d3b5e', // 3  river
+  '#1b5e20', // 4  median
+  '#1c2a35', // 5  road
+  '#263238', // 6  road
+  '#1c2a35', // 7  road
+  '#263238', // 8  road
+  '#1b5e20', // 9  start
+];
+
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+
+function applyCanvasSize() {
+  canvas.width  = W;
+  canvas.height = H;
+}
+
+function resizeCanvas() {
+  const scale = Math.min(window.innerHeight * 0.75 / H, window.innerWidth * 0.95 / W);
+  canvas.style.width  = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+// ─── Trump image ─────────────────────────────────────────────────────────────
+const trumpImg  = new Image();
+const nettyImg  = new Image();
+const rocketImg = new Image();
+const heggerImg = new Image();
+const jackImg    = new Image();
+const foxNewsImg = new Image();
+let imagesReady = 0;
+
+let jackClean = null;  // white-background-removed version of jackImg
+
+function removeWhiteBg(img, threshold = 238) {
+  const oc = document.createElement('canvas');
+  oc.width  = img.naturalWidth;
+  oc.height = img.naturalHeight;
+  const ox = oc.getContext('2d');
+  ox.drawImage(img, 0, 0);
+  const id = ox.getImageData(0, 0, oc.width, oc.height);
+  const d  = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] > threshold && d[i+1] > threshold && d[i+2] > threshold) d[i+3] = 0;
+  }
+  ox.putImageData(id, 0, 0);
+  return oc;
+}
+
+function onImageSettled() {
+  if (++imagesReady < 6) return;
+  const spriteH = Math.max(
+    trumpImg.naturalHeight || 0,
+    nettyImg.naturalHeight || 0
+  );
+  BANK_H = Math.ceil(spriteH * 0.5) + 8;
+  H      = BANK_H + (ROWS - 1) * CELL;
+  if (jackImg.naturalWidth > 0) jackClean = removeWhiteBg(jackImg);
+  applyCanvasSize();
+  resizeCanvas();
+  startGame();
+}
+
+trumpImg.onload  = onImageSettled;
+trumpImg.onerror = onImageSettled;
+trumpImg.src     = 'trump.png';
+
+nettyImg.onload  = onImageSettled;
+nettyImg.onerror = onImageSettled;
+nettyImg.src     = 'netty.png';
+
+rocketImg.onload  = onImageSettled;
+rocketImg.onerror = onImageSettled;
+rocketImg.src     = 'rocket_small.png';
+
+heggerImg.onload  = onImageSettled;
+heggerImg.onerror = onImageSettled;
+heggerImg.src     = 'hegger.png';
+
+jackImg.onload  = onImageSettled;
+jackImg.onerror = onImageSettled;
+jackImg.src     = 'jack-daniels.png';
+
+foxNewsImg.onload  = onImageSettled;
+foxNewsImg.onerror = onImageSettled;
+foxNewsImg.src     = 'foxnews.svg';
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let frog, logs, vehicles, state, raf;
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+function startGame() {
+  cancelAnimationFrame(raf);
+  hideOverlay();
+  state    = 'playing';
+  frog     = { x: (COLS >> 1) * CELL, y: rowY(ROW_START) };
+  logs     = makeLogs();
+  vehicles = makeVehicles();
+  loop();
+}
+
+function makeLogs() {
+  const defs = [
+    { row:1, x:  0, w:150, spd: 1.2 },
+    { row:1, x:290, w:120, spd: 1.2 },
+    { row:1, x:510, w:140, spd: 1.2 },
+    { row:2, x: 60, w:130, spd:-0.96 },
+    { row:2, x:310, w:110, spd:-0.96 },
+    { row:2, x:530, w:130, spd:-0.96 },
+    { row:3, x: 30, w:200, spd: 1.6 },
+    { row:3, x:370, w:160, spd: 1.6 },
+  ];
+  return defs.map(d => ({ x: d.x, y: rowY(d.row), w: d.w, h: CELL, spd: d.spd, row: d.row }));
+}
+
+function makeVehicles() {
+  const defs = [
+    { row:5, x:560, w: 80, spd:-1.6,  col:'#c62828' },
+    { row:5, x:350, w: 80, spd:-1.6,  col:'#e53935' },
+    { row:5, x:110, w: 80, spd:-1.6,  col:'#c62828' },
+    { row:6, x:  0, w: 80, spd: 2.0,  col:'#4527a0' },
+    { row:6, x:240, w: 80, spd: 2.0,  col:'#1565c0' },
+    { row:6, x:470, w: 80, spd: 2.0,  col:'#4527a0' },
+    { row:7, x: 60, w:130, spd: 1.28, col:'#1b5e20' },
+    { row:7, x:390, w:130, spd: 1.28, col:'#2e7d32' },
+    { row:8, x:200, w:130, spd:-1.52, col:'#e65100' },
+    { row:8, x:490, w:130, spd:-1.52, col:'#bf360c' },
+  ];
+  return defs.map(d => ({ x: d.x, y: rowY(d.row), w: d.w, h: CELL, spd: d.spd, col: d.col, row: d.row }));
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function aabb(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+function wrapEntity(e) {
+  if (e.spd > 0 && e.x > W)        e.x = -e.w;
+  if (e.spd < 0 && e.x + e.w < 0)  e.x = W;
+}
+
+// Row 0 has height BANK_H; all other rows have height CELL.
+function frogRow() {
+  if (frog.y < BANK_H) return 0;
+  return 1 + Math.round((frog.y - BANK_H) / CELL);
+}
+function frogCol() { return Math.round(frog.x / CELL); }
+
+// Slightly inset hitbox for a little fairness on the log edges
+function frogHit() {
+  const pad = 6;
+  return { x: frog.x + pad, y: frog.y + pad, w: CELL - pad * 2, h: CELL - pad * 2 };
+}
+
+function darken(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgb(${(r * 0.65) | 0},${(g * 0.65) | 0},${(b * 0.65) | 0})`;
+}
+
+// ─── Overlay ─────────────────────────────────────────────────────────────────
+function showOverlay(title, msg, isWin) {
+  document.getElementById('ov-title').textContent = title;
+  document.getElementById('ov-title').style.color = isWin ? '#66bb6a' : '#ef5350';
+  document.getElementById('ov-msg').textContent   = msg;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function hideOverlay() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function die(title, msg) {
+  state = 'dead';
+  showOverlay(title, msg, false);
+}
+
+function win(title, msg) {
+  state = 'win';
+  showOverlay(title, msg, true);
+}
+
+// ─── Update ──────────────────────────────────────────────────────────────────
+function update() {
+  for (const l of logs)     { l.x += l.spd; wrapEntity(l); }
+  for (const v of vehicles) { v.x += v.spd; wrapEntity(v); }
+
+  const row = frogRow();
+  const { x: fx, y: fy, w: fw, h: fh } = frogHit();
+
+  // ── River rows ──
+  if (RIVER_ROWS.has(row)) {
+    let riding = null;
+    for (const l of logs) {
+      if (l.row === row && aabb(fx, fy, fw, fh, l.x, l.y, l.w, l.h)) {
+        riding = l;
+        break;
+      }
+    }
+    if (!riding) return die('Splash!', 'You fell into the river!');
+    frog.x += riding.spd;
+    if (frog.x + CELL <= 0 || frog.x >= W) {
+      return die('Swept Away!', 'The current carried you off the edge!');
+    }
+    return;
+  }
+
+  // ── Road rows ──
+  if (ROAD_ROWS.has(row)) {
+    for (const v of vehicles) {
+      if (v.row === row && aabb(fx, fy, fw, fh, v.x, v.y, v.w, v.h)) {
+        return die('Road Kill!', 'You were run over!');
+      }
+    }
+    return;
+  }
+
+  // ── Top bank ──
+  if (row === ROW_BANK) {
+    const col = frogCol();
+    if (col <= WIN_L_MAX)  return win('You Win!', 'You reached the left bank safely!');
+    if (col >= WIN_R_MIN)  return win('You Win!', 'You reached the right bank safely!');
+    return die('Dead End!', 'The middle of the bank drops off a cliff!');
+  }
+}
+
+// ─── Draw ────────────────────────────────────────────────────────────────────
+function draw() {
+  // Row 0 background (BANK_H tall)
+  ctx.fillStyle = ROW_BG[0];
+  ctx.fillRect(0, 0, W, BANK_H);
+  // Rows 1–9 backgrounds (CELL tall each)
+  for (let r = 1; r < ROWS; r++) {
+    ctx.fillStyle = ROW_BG[r];
+    ctx.fillRect(0, rowY(r), W, CELL);
+  }
+
+  // ── Bank row: win zones ──
+  ctx.fillStyle = '#33691e';
+  ctx.fillRect(0,              0, (WIN_L_MAX + 1) * CELL,       BANK_H);
+  ctx.fillRect(WIN_R_MIN*CELL, 0, (COLS - WIN_R_MIN) * CELL,    BANK_H);
+
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 13px Courier New';
+
+  // Left WIN zone: trump sprite
+  if (trumpImg.complete && trumpImg.naturalWidth > 0) {
+    const sw    = trumpImg.naturalWidth  * 0.5;
+    const sh    = trumpImg.naturalHeight * 0.5;
+    const zoneW = (WIN_L_MAX + 1) * CELL;
+    ctx.drawImage(trumpImg, (zoneW - sw) / 2, (BANK_H - sh) / 2, sw, sh);
+  }
+
+  // Right WIN zone: netty sprite
+  if (nettyImg.complete && nettyImg.naturalWidth > 0) {
+    const sw    = nettyImg.naturalWidth  * 0.5;
+    const sh    = nettyImg.naturalHeight * 0.5;
+    const zoneX = WIN_R_MIN * CELL;
+    const zoneW = (COLS - WIN_R_MIN) * CELL;
+    ctx.drawImage(nettyImg, zoneX + (zoneW - sw) / 2, (BANK_H - sh) / 2, sw, sh);
+  } else {
+    ctx.fillStyle = '#8bc34a';
+    ctx.fillText('WIN', WIN_R_MIN * CELL + (COLS - WIN_R_MIN) * CELL / 2, BANK_H / 2);
+  }
+
+  const dangerX = (WIN_L_MAX + 1) * CELL;
+  const dangerW = (WIN_R_MIN - WIN_L_MAX - 1) * CELL;
+  if (foxNewsImg.complete && foxNewsImg.naturalWidth > 0) {
+    ctx.drawImage(foxNewsImg, dangerX + (dangerW - BANK_H) / 2, 0, BANK_H, BANK_H);
+  } else {
+    ctx.fillStyle = '#8d6e63';
+    ctx.fillText('DANGER', dangerX + dangerW / 2, BANK_H / 2);
+  }
+
+  // ── Road center dashes ──
+  ctx.save();
+  ctx.setLineDash([18, 16]);
+  ctx.strokeStyle = 'rgba(255,255,220,0.1)';
+  ctx.lineWidth   = 2;
+  for (const r of ROAD_ROWS) {
+    ctx.beginPath();
+    ctx.moveTo(0, rowY(r) + CELL / 2);
+    ctx.lineTo(W, rowY(r) + CELL / 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── Logs (rockets) ──
+  for (const l of logs) {
+    if (rocketImg.complete && rocketImg.naturalWidth > 0) {
+      const mirror = l.row === 1 || l.row === 3;
+      if (mirror) {
+        ctx.save();
+        ctx.translate(l.x + l.w, l.y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(rocketImg, 0, 0, l.w, CELL);
+        ctx.restore();
+      } else {
+        ctx.drawImage(rocketImg, l.x, l.y, l.w, CELL);
+      }
+    } else {
+      ctx.fillStyle = '#795548';
+      ctx.fillRect(l.x, l.y + 4, l.w, CELL - 8);
+    }
+  }
+
+  // ── Vehicles ──
+  for (const v of vehicles) {
+    const isTruck = v.w >= 110;
+
+    // Body
+    ctx.fillStyle = v.col;
+    ctx.fillRect(v.x, v.y + 8, v.w, CELL - 16);
+
+    // Cabin / roof
+    const cabW = isTruck ? v.w * 0.38 : v.w * 0.52;
+    const cabX = v.spd > 0 ? v.x : v.x + v.w - cabW;
+    ctx.fillStyle = darken(v.col);
+    ctx.fillRect(cabX, v.y + 8, cabW, (CELL - 16) * 0.55);
+
+    // Windshield
+    ctx.fillStyle = 'rgba(180,220,255,0.45)';
+    const wsW = 14;
+    const wsX = v.spd > 0 ? v.x + v.w - wsW - 5 : v.x + 5;
+    ctx.fillRect(wsX, v.y + 11, wsW, CELL - 22);
+
+    // Jack Daniels on small cars in top two road rows
+    if (!isTruck && (v.row === 5 || v.row === 6) && jackClean) {
+      ctx.drawImage(jackClean, v.x, v.y + 8, v.w, CELL - 16);
+    }
+
+    // Side text on trucks
+    if (isTruck && (v.row === 7 || v.row === 8)) {
+      const label = v.row === 8 ? 'CONGRESS' : 'PRESS';
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(v.x, v.y, v.w, CELL);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = 'bold 22px Courier New';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, v.x + v.w / 2, v.y + CELL / 2);
+      ctx.restore();
+    }
+
+    // Wheels
+    ctx.fillStyle = '#111';
+    ctx.fillRect(v.x + 5,        v.y + CELL - 10, 13, 6);
+    ctx.fillRect(v.x + v.w - 18, v.y + CELL - 10, 13, 6);
+    ctx.fillStyle = '#444';
+    ctx.fillRect(v.x + 8,        v.y + CELL - 9,  7,  4);
+    ctx.fillRect(v.x + v.w - 15, v.y + CELL - 9,  7,  4);
+  }
+
+  // ── Frog (drawn 1.5× CELL, bottom-anchored; hitbox = bottom 2/3 = frog.y..frog.y+CELL) ──
+  const fx = frog.x, fy = frog.y;
+  const SW = CELL * 1.5, SH = CELL * 1.5;
+  if (heggerImg.complete && heggerImg.naturalWidth > 0) {
+    ctx.drawImage(heggerImg, fx - (SW - CELL) / 2, fy - (SH - CELL), SW, SH);
+  } else {
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillRect(fx + 4, fy + 4, CELL - 8, CELL - 8);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(fx + 7, fy + 7, CELL - 14, CELL - 14);
+  }
+}
+
+// ─── Game Loop ───────────────────────────────────────────────────────────────
+function loop() {
+  update();
+  draw();
+  if (state === 'playing') {
+    raf = requestAnimationFrame(loop);
+  }
+}
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (state !== 'playing') return;
+  const row = frogRow();
+  switch (e.key) {
+    case 'ArrowUp':
+      e.preventDefault();
+      if (row > 0) frog.y = row === 1 ? 0 : frog.y - CELL;
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (row < ROWS - 1) frog.y = row === 0 ? BANK_H : frog.y + CELL;
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      frog.x = Math.max(0, frog.x - CELL);
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      frog.x = Math.min((COLS - 1) * CELL, frog.x + CELL);
+      break;
+  }
+});
+</script>
+</body>
+</html>
