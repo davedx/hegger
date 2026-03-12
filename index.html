@@ -37,6 +37,44 @@
       #ui {
         position: relative;
       }
+      #dpad {
+        display: none;
+      }
+      @media (max-width: 600px) {
+        body {
+          justify-content: flex-start;
+          padding-top: 8px;
+        }
+        #dpad {
+          display: grid;
+          grid-template-areas:
+            ". up ."
+            "left . right"
+            ". down .";
+          grid-template-columns: repeat(3, 64px);
+          grid-template-rows: repeat(3, 64px);
+          gap: 6px;
+          margin-top: 16px;
+        }
+        #dpad button {
+          background: rgba(255,255,255,0.12);
+          border: 2px solid rgba(255,255,255,0.3);
+          border-radius: 8px;
+          color: #fff;
+          font-size: 28px;
+          cursor: pointer;
+          user-select: none;
+          -webkit-user-select: none;
+          touch-action: manipulation;
+        }
+        #dpad button:active {
+          background: rgba(255,255,255,0.28);
+        }
+        #btn-up    { grid-area: up; }
+        #btn-left  { grid-area: left; }
+        #btn-right { grid-area: right; }
+        #btn-down  { grid-area: down; }
+      }
       canvas {
         display: block;
         border: 2px solid #333;
@@ -97,6 +135,12 @@
       </div>
     </div>
     <div id="hint">Arrow keys to move</div>
+    <div id="dpad">
+      <button id="btn-up">▲</button>
+      <button id="btn-left">◀</button>
+      <button id="btn-right">▶</button>
+      <button id="btn-down">▼</button>
+    </div>
 
     <script>
       // ─── Constants ───────────────────────────────────────────────────────────────
@@ -614,27 +658,26 @@
       }
 
       // ─── Input ───────────────────────────────────────────────────────────────────
-      document.addEventListener("keydown", (e) => {
+      function handleMove(dir) {
         if (state !== "playing") return;
         const row = frogRow();
-        switch (e.key) {
-          case "ArrowUp":
-            e.preventDefault();
-            if (row > 0) frog.y = row === 1 ? 0 : frog.y - CELL;
-            break;
-          case "ArrowDown":
-            e.preventDefault();
-            if (row < ROWS - 1) frog.y = row === 0 ? BANK_H : frog.y + CELL;
-            break;
-          case "ArrowLeft":
-            e.preventDefault();
-            frog.x = Math.max(0, frog.x - CELL);
-            break;
-          case "ArrowRight":
-            e.preventDefault();
-            frog.x = Math.min((COLS - 1) * CELL, frog.x + CELL);
-            break;
+        if (dir === "ArrowUp" && row > 0) frog.y = row === 1 ? 0 : frog.y - CELL;
+        if (dir === "ArrowDown" && row < ROWS - 1) frog.y = row === 0 ? BANK_H : frog.y + CELL;
+        if (dir === "ArrowLeft") frog.x = Math.max(0, frog.x - CELL);
+        if (dir === "ArrowRight") frog.x = Math.min((COLS - 1) * CELL, frog.x + CELL);
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+          e.preventDefault();
+          handleMove(e.key);
         }
+      });
+
+      ["up","down","left","right"].forEach((d) => {
+        const btn = document.getElementById("btn-" + d);
+        btn.addEventListener("touchstart", (e) => { e.preventDefault(); handleMove("Arrow" + d[0].toUpperCase() + d.slice(1)); });
+        btn.addEventListener("click", () => handleMove("Arrow" + d[0].toUpperCase() + d.slice(1)));
       });
     </script>
   </body>
