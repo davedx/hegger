@@ -43,7 +43,9 @@
       @media (max-width: 600px) {
         body {
           justify-content: flex-start;
+          min-height: unset;
           padding-top: 8px;
+          gap: 6px;
         }
         #dpad {
           display: grid;
@@ -191,8 +193,10 @@
       }
 
       function resizeCanvas() {
+        const mobile = window.innerWidth <= 600;
+        const vhFrac = mobile ? 0.55 : 0.75;
         const scale = Math.min(
-          (window.innerHeight * 0.75) / H,
+          (window.innerHeight * vhFrac) / H,
           (window.innerWidth * 0.95) / W,
         );
         canvas.style.width = W * scale + "px";
