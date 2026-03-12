@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hegger</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
@@ -44,8 +45,15 @@
         body {
           justify-content: flex-start;
           min-height: unset;
-          padding-top: 8px;
+          padding: 8px 0 0 0;
           gap: 6px;
+        }
+        #ui {
+          width: 100%;
+        }
+        canvas {
+          width: 100% !important;
+          height: auto !important;
         }
         #dpad {
           display: grid;
@@ -194,11 +202,15 @@
 
       function resizeCanvas() {
         const mobile = window.innerWidth <= 600;
-        const vhFrac = mobile ? 0.55 : 0.75;
-        const scale = Math.min(
-          (window.innerHeight * vhFrac) / H,
-          (window.innerWidth * 0.95) / W,
-        );
+        let scale;
+        if (mobile) {
+          scale = (window.innerWidth - 4) / W;
+        } else {
+          scale = Math.min(
+            (window.innerHeight * 0.75) / H,
+            (window.innerWidth * 0.95) / W,
+          );
+        }
         canvas.style.width = W * scale + "px";
         canvas.style.height = H * scale + "px";
       }
